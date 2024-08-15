@@ -37,7 +37,7 @@ fake = Faker()
 
 while True:
     # Simulating vital signs and seizure detection
-    seizure_event = random.random() < 0.20  # Randomly decide if a seizure occurs
+    seizure_event = random.random() < 0.05  # Randomly decide if a seizure occurs
     payload = {
         "patientId": str(uuid.uuid4()),
         "name": fake.name(),

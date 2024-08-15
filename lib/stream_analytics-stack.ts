@@ -1,6 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as kinesis from 'aws-cdk-lib/aws-kinesis';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -13,17 +12,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { TableViewer } from 'cdk-dynamo-table-viewer';
+import { Domain, EngineVersion } from 'aws-cdk-lib/aws-opensearchservice';
+
+import * as dotenv from 'dotenv'
+dotenv.config()
+
 
 export class StreamAnalyticsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     // The code that defines your stack goes here
-
-    // example resource
-    // const queue = new sqs.Queue(this, 'StreamAnalyticsQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
 
     // rootStream is a raw kinesis stream in which we build other modules on top of.
     const rootStream = new kinesis.Stream(this, 'RootStream', {
@@ -32,17 +31,17 @@ export class StreamAnalyticsStack extends cdk.Stack {
     }
     );
 
-    //Output the stream name
+    // Output the stream name
     new cdk.CfnOutput(this, 'RootStreamName', {
       value: rootStream.streamName,
     });
 
-    //    // =============================================================================
+    // =============================================================================
     // Cold Module:
-    //
+    
     // The Cold Module reads raw data from the stream, compresses it, and sends it
     //  to S3 for later analysis
-    //
+    
     // +---------+      +----------+      +-----------+
     // |         |      |          |      |           |
     // | Stream  +----->+ Firehose +----->+ S3 Bucket |
@@ -51,8 +50,14 @@ export class StreamAnalyticsStack extends cdk.Stack {
 
     //S3 BUCKET
     const rawDataBucket = new s3.Bucket(this, 'RawDataBucket', {
+      bucketName: 'raw-data-bucket-234',
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,// Empty bucket before deleting
+    });
+
+    //Output the bucket name
+    new cdk.CfnOutput(this, 'RawDataBucketName', {
+      value: rawDataBucket.bucketName,
     });
 
     //Firehose Role
@@ -91,6 +96,71 @@ export class StreamAnalyticsStack extends cdk.Stack {
 
     // Ensures our role is created before we try to create a Kinesis Firehose
     firehoseStreamToS3.node.addDependency(firehoseRole)
+
+
+    // =============================================================================
+    // OpenSearch Module:
+
+    const opensearchDomain = new Domain(this, 'Domain', {
+      version: EngineVersion.OPENSEARCH_2_13,
+      domainName: 'opensearch-domain',
+      capacity: {
+        dataNodes: 1,
+        dataNodeInstanceType: 't3.medium.search',
+        multiAzWithStandbyEnabled: false,
+      },
+      ebs: {
+        volumeSize: 20,
+      },
+      enforceHttps: true,
+        nodeToNodeEncryption: true,
+        encryptionAtRest: {
+          enabled: true,
+        },
+      fineGrainedAccessControl: {
+        masterUserName: process.env.OPENSEARCH_USER,
+        masterUserPassword: cdk.SecretValue.unsafePlainText(process.env.OPENSEARCH_PASSWORD as string),
+      },
+      accessPolicies: [
+        new iam.PolicyStatement({
+          actions: ['es:*'],
+          resources: ['*'],
+          effect: iam.Effect.ALLOW,
+          principals: [new iam.AnyPrincipal()],
+        })],
+    });
+
+    // // Output the domain dashboard
+    new cdk.CfnOutput(this, 'DomainDashboard', {
+      value: opensearchDomain.domainEndpoint,
+    });
+
+    //analusis lambda role
+    const analysisLambdaRole = new iam.Role(this, 'AnalysisLambdaRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      // lambda execution role
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole'),
+      ],
+    });
+
+    // // Allow the lambda function to read from the raw data bucket
+    rawDataBucket.grantReadWrite(analysisLambdaRole);
+
+
+    // docker lambda function
+    const dockerLambda = new lambda.DockerImageFunction(this, 'DockerLambda', {
+      code: lambda.DockerImageCode.fromImageAsset('lib/lambda_docker'),
+      role: analysisLambdaRole,
+      environment: {
+        BUCKET_NAME: rawDataBucket.bucketName,
+        OPENSEARCH_ENDPOINT: opensearchDomain.domainEndpoint,
+        OPENSEARCH_USER: process.env.OPENSEARCH_USER as string,
+        OPENSEARCH_PASSWORD: process.env.OPENSEARCH_PASSWORD as string,
+      },
+
+    });
 
     // =============================================================================
     // Hot Module:

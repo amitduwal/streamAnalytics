@@ -28,6 +28,7 @@ export class StreamAnalyticsStack extends cdk.Stack {
     const rootStream = new kinesis.Stream(this, 'RootStream', {
       streamMode: kinesis.StreamMode.PROVISIONED,
       shardCount: 1,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     }
     );
 
@@ -128,7 +129,10 @@ export class StreamAnalyticsStack extends cdk.Stack {
           effect: iam.Effect.ALLOW,
           principals: [new iam.AnyPrincipal()],
         })],
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
+
+
 
     // // Output the domain dashboard
     new cdk.CfnOutput(this, 'DomainDashboard', {

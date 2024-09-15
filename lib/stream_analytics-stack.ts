@@ -210,6 +210,7 @@ export class StreamAnalyticsStack extends cdk.Stack {
     )
 
     seizureNotificationTopic.addSubscription(new snssub.EmailSubscription('duwalamit@gmail.com'))
+    seizureNotificationTopic.addSubscription(new snssub.EmailSubscription('bishwasdangol1@gmail.com'))
 
     // Lambda function to  sns
     const fanoutLambda = new lambda.Function(this, 'LambdaFanoutFunction',{

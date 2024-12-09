@@ -13,6 +13,9 @@ The pipeline includes:
 - Visualization using Amazon OpenSearch
 - Infrastructure as Code using AWS CDK
 
+
+![alt text](image.png)
+
 ## Prerequisites
 
 - Node.js (v14.x or later)
